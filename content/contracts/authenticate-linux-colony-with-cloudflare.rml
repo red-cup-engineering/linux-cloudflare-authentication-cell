@@ -1,0 +1,15 @@
+#lang rmn/v2
+(map
+  ("type" "CapabilityCellManifest")
+  ("version" 1)
+  ("profile" "StateCell")
+  ("actor" "urn:ame:linux-cloudflare-authentication-cell")
+  ("capability" "authenticate-linux-colony-with-cloudflare")
+  ("action" "https://linux-cloudflare-authentication.actions.561.group/invoke")
+  ("input" "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory")
+  ("effect" "create or reuse a scoped Cloudflare OAuth grant, keep its encryption key in Linux Secret Service custody, verify the expected account, and bind the profile to the settlement")
+  ("output" "a non-secret verified account and profile binding receipt")
+  ("authority" "only the explicitly requested OAuth scopes; no ambient Cloudflare credentials")
+  ("refuses" (list "implicit scopes" "plaintext credential fallback" "credential disclosure" "deployment" "DNS mutation"))
+  ("chain" "eip155:5615610")
+  ("package" "@red-cup-engineering/linux-cloudflare-authentication-cell"))

@@ -9,8 +9,60 @@
     "type": "git",
     "url": "git+https://github.com/red-cup-engineering/linux-cloudflare-authentication-cell.git"
   },
+  "homepage": "https://linux-cloudflare-authentication.actions.561.group/",
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "bin": {
+    "authenticate-linux-colony-with-cloudflare": "./bin/authenticate-linux-colony-with-cloudflare.mjs"
+  },
+  "exports": {
+    ".": "./src/authenticate-linux-colony-with-cloudflare.mjs"
+  },
+  "types": "./types/index.d.mts",
+  "files": [
+    "bin",
+    "content",
+    "data/manifest",
+    "libexec",
+    "src",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "materialize-manifest": "node ops/materialize-manifest.mjs",
+    "test": "node --test",
+    "check": "node --check bin/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm test && npm pack --dry-run"
+  },
+  "dependencies": {
+    "@emsenn/rmn-semantic-conformance-die": "https://github.com/emsenn/rmn-semantic-conformance-die/releases/download/v6.0.0/emsenn-rmn-semantic-conformance-die-6.0.0.tgz",
+    "wrangler": "4.114.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "x-agentic-metro-enterprise": {
+    "node-id": "linux-cloudflare-authentication-cell",
+    "actor": "urn:ame:linux-cloudflare-authentication-cell",
+    "organizational-kind": "capability-cell",
+    "owners": [
+      "red-cup-engineering"
+    ],
+    "capability": "authenticate-linux-colony-with-cloudflare",
+    "action-origin": "https://linux-cloudflare-authentication.actions.561.group",
+    "chain": "eip155:5615610",
+    "operation-catalog": {
+      "authenticate-linux-colony-with-cloudflare": {
+        "contract": "ni:///sha-256;piqxpAqXLAxwlek0kAFz5wC_tLhDz5HPKvRYZUwwPm0",
+        "action": "https://linux-cloudflare-authentication.actions.561.group/invoke",
+        "accepts": "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory",
+        "returns": "a non-secret verified account and profile binding receipt",
+        "protocols": [
+          "HTTPS"
+        ]
+      }
+    }
   }
 }

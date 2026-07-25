@@ -1,0 +1,28 @@
+{
+  "profile": "org.emsenn.evm.sovereign-enterprise-account.v3",
+  "enterprise": {
+    "nodeId": "linux-cloudflare-authentication-cell",
+    "urn": "urn:ame:linux-cloudflare-authentication-cell",
+    "enterpriseId": "0xe8a8846fb45f966c3849233413b53d78d1528767307e19a2d9bc87fd1f0a8508"
+  },
+  "chain": {
+    "chainId": 5615610,
+    "caip2": "eip155:5615610"
+  },
+  "account": {
+    "address": "0x6be75d7b874b5dd3a5ec1e74967cd9ae91371090",
+    "caip10": "eip155:5615610:0x6be75d7b874b5dd3a5ec1e74967cd9ae91371090"
+  },
+  "factory": {
+    "address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+    "userSalt": "0x4b70b53c5ace8ba77fa88247972862cf15771bd998196f3f78233aa5da7018ab"
+  },
+  "policy": {
+    "signer": "0x35079eb2270ad4f8ace639c857b05e3c508f9e94",
+    "custody": "settlement-private"
+  },
+  "deployment": {
+    "transaction": "0x5d482bb3c3b31555a9bba7ff495aa23c6e9769fd20681f73803f22896842783a",
+    "block": 21
+  }
+}
