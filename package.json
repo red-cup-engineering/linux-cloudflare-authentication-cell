@@ -1,0 +1,16 @@
+{
+  "name": "@red-cup-engineering/linux-cloudflare-authentication-cell",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Initiates one explicitly scoped Cloudflare OAuth authorization from a Linux settlement, stores it through Wrangler named-profile keyring custody, verifies the account binding, and returns a non-secret receipt.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/red-cup-engineering/linux-cloudflare-authentication-cell.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
