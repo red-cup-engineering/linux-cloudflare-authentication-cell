@@ -126,6 +126,17 @@ function extractAccounts(value, results = []) {
   return results;
 }
 
+function verifyGrantedScopes(identity, requested) {
+  if (!Array.isArray(identity?.tokenPermissions)) {
+    throw new Error("Wrangler identity response does not disclose granted OAuth permissions");
+  }
+  const granted = [...new Set(identity.tokenPermissions)].sort();
+  const expected = [...new Set([...requested, "offline_access"])].sort();
+  if (JSON.stringify(granted) !== JSON.stringify(expected)) {
+    throw new Error(`granted OAuth permissions differ from the exact request (expected ${expected.join(",")}; received ${granted.join(",")})`);
+  }
+}
+
 export async function authenticateLinuxColonyWithCloudflare(request, options = {}) {
   const input = validateAuthenticationRequest(request);
   const target = await realpath(input.settlementDirectory);
@@ -150,6 +161,7 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
     } catch {
       throw new Error("Wrangler returned a non-JSON identity response");
     }
+    verifyGrantedScopes(identity, input.scopes);
     const candidate = extractAccounts(identity).find((item) => item.id === input.expectedAccountId);
     if (!candidate) {
       throw new Error(`authorized identity is not a member of expected Cloudflare account ${input.expectedAccountId}`);

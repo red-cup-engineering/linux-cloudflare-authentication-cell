@@ -19,7 +19,7 @@ test("authorizes, verifies, then activates without ambient credentials", async (
   const execute = async (command, args, options) => {
     calls.push({ command, args, options });
     if (calls.length === 1) throw new Error("profile absent");
-    if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: accountId, name: "Union" }] }), stderr: "" };
+    if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: accountId, name: "Union" }], tokenPermissions: ["offline_access", "workers_scripts:write", "account:read"] }), stderr: "" };
     return { stdout: "", stderr: "" };
   };
   const receipt = await authenticateLinuxColonyWithCloudflare({
@@ -67,9 +67,33 @@ test("does not activate an unexpected account", async () => {
   }, {
     execute: async (_command, args) => {
       calls += 1;
-      if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: "f".repeat(32) }] }), stderr: "" };
+      if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: "f".repeat(32) }], tokenPermissions: ["account:read", "offline_access"] }), stderr: "" };
       return { stdout: "", stderr: "" };
     }
   }), /not a member/);
+  assert.equal(calls, 5);
+});
+
+test("does not reuse a profile carrying broader authority", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+  let calls = 0;
+  await assert.rejects(authenticateLinuxColonyWithCloudflare({
+    profile: "bare-cedar-fog",
+    expectedAccountId: accountId,
+    scopes: ["account:read"],
+    settlementDirectory: directory,
+    browser: false
+  }, {
+    execute: async (_command, args) => {
+      calls += 1;
+      if (args.includes("whoami")) {
+        return { stdout: JSON.stringify({
+          accounts: [{ id: accountId }],
+          tokenPermissions: ["account:read", "offline_access", "workers:write"]
+        }), stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    }
+  }), /granted OAuth permissions differ/);
   assert.equal(calls, 5);
 });
