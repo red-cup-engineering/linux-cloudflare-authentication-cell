@@ -37,7 +37,7 @@
     "check": "node --check bin/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm test && npm pack --dry-run"
   },
   "dependencies": {
-    "@emsenn/rmn-semantic-conformance-die": "https://github.com/emsenn/rmn-semantic-conformance-die/releases/download/v6.0.0/emsenn-rmn-semantic-conformance-die-6.0.0.tgz",
+    "@lenticule-science/rmn-semantic-conformance-die": "6.0.0",
     "wrangler": "4.114.0"
   },
   "engines": {
@@ -64,5 +64,23 @@
         ]
       }
     }
+  },
+  "x-semiotic-voxel": {
+    "profile": "org.harmonious-union.semiotic-voxel.v1",
+    "owner": "red-cup-engineering",
+    "kind": "capability-cell",
+    "actor": "urn:ame:linux-cloudflare-authentication-cell",
+    "operations": [
+      "authenticate-linux-colony-with-cloudflare"
+    ],
+    "capabilities": [
+      {
+        "capability": "linux-cloudflare-authentication-cell",
+        "faces": [
+          "authenticate-linux-colony-with-cloudflare"
+        ]
+      }
+    ],
+    "package": "@red-cup-engineering/linux-cloudflare-authentication-cell"
   }
 }

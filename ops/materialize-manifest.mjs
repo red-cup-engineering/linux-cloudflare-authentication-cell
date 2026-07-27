@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseRml, semanticBytes, semanticId } from "@emsenn/rmn-semantic-conformance-die";
+import { parseRml, semanticBytes, semanticId } from "@lenticule-science/rmn-semantic-conformance-die";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(root, "content/contracts/authenticate-linux-colony-with-cloudflare.rml");
