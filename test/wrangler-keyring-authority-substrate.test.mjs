@@ -36,6 +36,7 @@ test("shared actuator projects opaque Cloudflare authority through Wrangler keyr
   assert.equal(receipt.content.startsWith("ni:///sha-256;"), true);
   assert.equal(receipt.secretBytesReturned, false);
   assert.equal(JSON.stringify(receipt).includes(secret.oauthToken), false);
+  assert.deepEqual(await substrate.readProfile(secret.profile), secret);
   assert.deepEqual(await custody.retrieve(receipt.reference), secret);
   const revocation = await custody.revoke(receipt.reference);
   assert.equal(revocation.secretBytesReturned, false);

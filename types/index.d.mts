@@ -48,6 +48,19 @@ export interface AuthenticationInspection {
   verified: true;
 }
 
+export interface CloudflareDnsReconciliationInput {
+  authentication: AuthenticationRequest;
+  mapping: { zone: "561.group"; type: "CNAME"; name: "gui.561.group"; content: "ghs.googlehosted.com"; proxied: false; ttl: 1 };
+}
+
+export interface CloudflareDnsReconciliationReceipt {
+  type: "CloudflareDnsReconciliationReceipt";
+  disposition: "created" | "updated" | "unchanged";
+  zoneId: string;
+  recordId: string;
+  credentialReturned: false;
+}
+
 export interface AuthenticationProgress {
   type: "LinuxCloudflareAuthenticationProgress";
   phase: "profile-probe" | "profile-reused" | "reauthorization-required" | "profile-verification" | "profile-activation";
@@ -75,3 +88,4 @@ export declare class LinuxCloudflareAuthenticationRefusal extends Error {
 
 export declare function authenticateLinuxColonyWithCloudflare(request: AuthenticationRequest, options?: AuthenticationOptions): Promise<AuthenticationReceipt>;
 export declare function inspectLinuxCloudflareAuthentication(request: AuthenticationRequest): Promise<AuthenticationInspection>;
+export declare function reconcileCloudRunDomainMappingDns(input: CloudflareDnsReconciliationInput): Promise<CloudflareDnsReconciliationReceipt>;

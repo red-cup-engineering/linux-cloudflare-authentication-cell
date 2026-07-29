@@ -63,6 +63,15 @@ export function createWranglerKeyringAuthoritySubstrate(options = {}) {
     if (stored.status !== 0) throw new CloudflareOAuthRefusal("SECRET_SERVICE_WRITE_FAILED", "Secret Service refused the Wrangler encryption key");
     return key;
   }
+  async function readProfile(profile) {
+    const key = await keyFor(profile, false);
+    if (!key) return null;
+    const envelope = JSON.parse(await readFile(paths(profile).encrypted, "utf8"));
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64")), decipher.final()]).toString("utf8");
+    return { profile, ...deserialize(plaintext) };
+  }
   return Object.freeze({
     async store({ reference, secret }) {
       const { profile } = secret;
@@ -83,14 +92,9 @@ export function createWranglerKeyringAuthoritySubstrate(options = {}) {
     async retrieve(reference) {
       const profile = profiles.get(reference);
       if (!profile) return null;
-      const key = await keyFor(profile, false);
-      if (!key) return null;
-      const envelope = JSON.parse(await readFile(paths(profile).encrypted, "utf8"));
-      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
-      decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-      const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64")), decipher.final()]).toString("utf8");
-      return { profile, ...deserialize(plaintext) };
+      return await readProfile(profile);
     },
+    async readProfile(profile) { return await readProfile(profile); },
     async revoke(reference) {
       const profile = profiles.get(reference);
       if (!profile) return;

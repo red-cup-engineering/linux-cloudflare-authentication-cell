@@ -72,6 +72,12 @@
         "accepts": "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory",
         "returns": "a non-secret verified inspection or typed authorization refusal",
         "protocols": ["POSIX", "DBus Secret Service", "Cloudflare API"]
+      },
+      "reconcile-cloud-run-domain-mapping-dns": {
+        "action": "local:reconcile-cloud-run-domain-mapping-dns",
+        "accepts": "one verified named dns:write profile plus the exact gui.561.group Cloud Run CNAME declaration",
+        "returns": "a non-secret created, updated, or unchanged DNS reconciliation receipt",
+        "protocols": ["POSIX", "DBus Secret Service", "Cloudflare REST API"]
       }
     }
   },
@@ -82,13 +88,15 @@
     "actor": "urn:ame:linux-cloudflare-authentication-cell",
     "operations": [
       "authenticate-linux-colony-with-cloudflare",
-      "inspect-linux-cloudflare-authentication"
+      "inspect-linux-cloudflare-authentication",
+      "reconcile-cloud-run-domain-mapping-dns"
     ],
     "capabilities": [
       {
         "capability": "linux-cloudflare-authentication-cell",
         "faces": [
-          "authenticate-linux-colony-with-cloudflare"
+          "authenticate-linux-colony-with-cloudflare",
+          "reconcile-cloud-run-domain-mapping-dns"
         ]
       }
     ],

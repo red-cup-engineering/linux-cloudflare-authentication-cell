@@ -23,6 +23,7 @@ export const CLOUDFLARE_OAUTH_SCOPES = new Set([
   "d1:write",
   "pages:write",
   "zone:read",
+  "dns:write",
   "ssl_certs:write",
   "ai:write",
   "ai-search:write",
@@ -53,6 +54,7 @@ const SECRET_ENVIRONMENT_KEYS = [
 ];
 
 const CELL_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const DNS_MAPPING = Object.freeze({ zone: "561.group", type: "CNAME", name: "gui.561.group", content: "ghs.googlehosted.com", proxied: false, ttl: 1 });
 
 function assertText(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -213,6 +215,51 @@ export class LinuxCloudflareAuthenticationRefusal extends Error {
       verified: false
     };
   }
+}
+
+function cloudRunDnsInput(input) {
+  const authentication = validateAuthenticationRequest(input?.authentication);
+  const mapping = input?.mapping;
+  if (!authentication.scopes.includes("dns:write") || !mapping || mapping.zone !== DNS_MAPPING.zone
+      || mapping.type !== DNS_MAPPING.type || mapping.name !== DNS_MAPPING.name || mapping.content !== DNS_MAPPING.content
+      || mapping.proxied !== DNS_MAPPING.proxied || mapping.ttl !== DNS_MAPPING.ttl) {
+    throw new TypeError("reconciliation requires the exact dns:write gui.561.group Cloud Run CNAME declaration");
+  }
+  return { authentication, mapping: DNS_MAPPING };
+}
+
+async function cloudflareRequest(fetchImpl, token, path, init = {}) {
+  const response = await fetchImpl(`https://api.cloudflare.com/client/v4${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
+  const body = await response.json();
+  if (!response.ok || body.success !== true) throw new LinuxCloudflareAuthenticationRefusal("DNS_API_REFUSED", `Cloudflare DNS request refused: ${JSON.stringify(body.errors ?? [])}`);
+  return body.result;
+}
+
+/** Reconcile exactly one declared DNS-only Cloud Run CNAME without Wrangler or Worker deployment. */
+export async function reconcileCloudRunDomainMappingDns(input, options = {}) {
+  const { authentication, mapping } = cloudRunDnsInput(input);
+  const inspection = await (options.inspect ?? inspectLinuxCloudflareAuthentication)(authentication, options);
+  const credential = options.profileCredential
+    ? await options.profileCredential(authentication.profile)
+    : await createWranglerKeyringAuthoritySubstrate({
+      secretToolPath: options.compatibilityDirectory ? join(options.compatibilityDirectory, "secret-tool") : join(CELL_ROOT, "libexec", "secret-tool"),
+      configDirectory: options.configDirectory,
+      secretToolExecute: options.secretToolExecute,
+    }).readProfile(authentication.profile);
+  const token = credential?.oauthToken;
+  if (typeof token !== "string" || token.length === 0) throw new LinuxCloudflareAuthenticationRefusal("PROFILE_TOKEN_UNAVAILABLE", "named profile has no OAuth token");
+  const fetchImpl = options.fetch ?? fetch;
+  const zones = await cloudflareRequest(fetchImpl, token, `/zones?name=${encodeURIComponent(mapping.zone)}`);
+  if (!Array.isArray(zones) || zones.length !== 1 || zones[0]?.name !== mapping.zone) throw new LinuxCloudflareAuthenticationRefusal("ZONE_AMBIGUOUS", "Cloudflare zone resolution is not exact");
+  const zoneId = zones[0].id, listPath = `/zones/${zoneId}/dns_records?type=CNAME&name=${encodeURIComponent(mapping.name)}`;
+  const records = await cloudflareRequest(fetchImpl, token, listPath);
+  const matches = Array.isArray(records) ? records.filter((record) => record.type === mapping.type && record.name === mapping.name) : [];
+  if (matches.length > 1) throw new LinuxCloudflareAuthenticationRefusal("DNS_DUPLICATE", "duplicate gui.561.group CNAME records refuse ambiguous mutation");
+  const same = (record) => record.content === mapping.content && record.proxied === mapping.proxied && record.ttl === mapping.ttl;
+  if (matches.length === 1 && same(matches[0])) return Object.freeze({ type: "CloudflareDnsReconciliationReceipt", disposition: "unchanged", zoneId, recordId: matches[0].id, mapping, inspection, credentialReturned: false });
+  const method = matches.length === 1 ? "PUT" : "POST", path = matches.length === 1 ? `/zones/${zoneId}/dns_records/${matches[0].id}` : `/zones/${zoneId}/dns_records`;
+  const result = await cloudflareRequest(fetchImpl, token, path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(mapping) });
+  return Object.freeze({ type: "CloudflareDnsReconciliationReceipt", disposition: matches.length === 1 ? "updated" : "created", zoneId, recordId: result.id, mapping, inspection, credentialReturned: false });
 }
 
 /**

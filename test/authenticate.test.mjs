@@ -26,6 +26,7 @@ test("admits the exact private MUD deployment authority expressible by Wrangler 
       "workers_scripts:write",
       "connectivity:admin",
       "workers_routes:write",
+      "dns:write",
       "zone:read",
       "user:read",
       "account:read"
@@ -36,6 +37,7 @@ test("admits the exact private MUD deployment authority expressible by Wrangler 
   assert.deepEqual(request.scopes, [
     "account:read",
     "connectivity:admin",
+    "dns:write",
     "user:read",
     "workers_routes:write",
     "workers_scripts:write",

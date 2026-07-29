@@ -10,6 +10,6 @@
   ("effect" "create or reuse a scoped Cloudflare OAuth grant, keep its encryption key in Linux Secret Service custody, verify the expected account, and bind the profile to the settlement")
   ("output" "a non-secret verified account and profile binding receipt")
   ("authority" "only the explicitly requested OAuth scopes; no ambient Cloudflare credentials")
-  ("refuses" (list "implicit scopes" "plaintext credential fallback" "credential disclosure" "deployment" "DNS mutation"))
+  ("refuses" (list "implicit scopes" "plaintext credential fallback" "credential disclosure" "deployment" "DNS mutation outside the exact declared gui.561.group Cloud Run CNAME"))
   ("chain" "eip155:5615610")
   ("package" "@red-cup-engineering/linux-cloudflare-authentication-cell"))
