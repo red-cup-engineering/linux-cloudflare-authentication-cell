@@ -1,9 +1,16 @@
-import { access, mkdtemp, realpath, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { createAuthorityCustodyActuator } from "@red-cup-engineering/authority-custody-actuator";
+import { semanticId } from "@red-cup-engineering/typed-resource-catalog";
+import {
+  authorizeCloudflareWithPkce
+} from "./cloudflare-oauth-pkce.mjs";
+import { createWranglerKeyringAuthoritySubstrate } from "./wrangler-keyring-authority-substrate.mjs";
+import { projectAuthenticationReceipt } from "./project-authentication-receipt.mjs";
 
 export const CLOUDFLARE_OAUTH_SCOPES = new Set([
   "account:read",
@@ -76,14 +83,17 @@ export function validateAuthenticationRequest(request) {
     }
   }
   const settlementDirectory = assertText(request.settlementDirectory, "settlementDirectory");
-  const browser = request.browser !== false;
+  if (request.browser === false) {
+    throw new TypeError("browser must be true; this cell transfers the one-time authorization URL directly and refuses copy/paste authentication");
+  }
+  const browser = true;
   const callbackHost = request.callbackHost ?? "localhost";
-  if (callbackHost !== "localhost" && callbackHost !== "127.0.0.1" && callbackHost !== "::1") {
-    throw new TypeError("callbackHost must remain on the Linux settlement loopback");
+  if (callbackHost !== "localhost" && callbackHost !== "127.0.0.1") {
+    throw new TypeError("callbackHost must be an IPv4-safe local spelling of the Cloudflare public client's registered localhost callback host");
   }
   const callbackPort = request.callbackPort ?? 8976;
-  if (!Number.isInteger(callbackPort) || callbackPort < 1024 || callbackPort > 65535) {
-    throw new TypeError("callbackPort must be an unprivileged TCP port");
+  if (callbackPort !== 8976) {
+    throw new TypeError("callbackPort must equal the Cloudflare public client's registered port 8976");
   }
   return { profile, expectedAccountId: expectedAccountId.toLowerCase(), scopes, settlementDirectory, browser, callbackHost, callbackPort };
 }
@@ -92,26 +102,74 @@ function safeEnvironment(environment, compatibilityDirectory) {
   const safe = { ...environment };
   for (const key of SECRET_ENVIRONMENT_KEYS) delete safe[key];
   safe.CLOUDFLARE_AUTH_USE_KEYRING = "true";
+  safe.WRANGLER_LOG_PATH ??= join(tmpdir(), "linux-cloudflare-authentication-cell-wrangler.log");
   safe.PATH = `${compatibilityDirectory}:${environment.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`;
   return safe;
 }
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
+    const { sensitiveArgs = false, ...spawnOptions } = options;
+    const commandLabel = sensitiveArgs ? command : `${command} ${args[0] ?? ""}`;
+    const child = spawn(command, args, spawnOptions);
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      reject(error);
+    });
     child.on("close", (status, signal) => {
       if (status !== 0) {
-        reject(new Error(`${command} ${args[0] ?? ""} failed (${signal ?? status}): ${stderr.trim() || "no diagnostic"}`));
+        const diagnostic = sensitiveArgs ? "target withheld" : stderr.trim() || stdout.trim() || "no diagnostic";
+        const error = new Error(`${commandLabel} failed (${signal ?? status}): ${diagnostic}`);
+        error.stdout = stdout;
+        error.stderr = stderr;
+        error.status = status;
+        reject(error);
         return;
       }
       resolve({ stdout, stderr });
     });
   });
+}
+
+function openWslBrowser(url) {
+  if (process.platform !== "linux" || !process.env.WSL_INTEROP) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "BROWSER_OPEN_UNAVAILABLE",
+      "automatic authorization requires WSL browser interop on this settlement"
+    );
+  }
+  return run("/usr/bin/wslview", [url], {
+    stdio: ["ignore", "pipe", "pipe"],
+    sensitiveArgs: true
+  });
+}
+
+async function preflightWslBrowserCallback({ url, registeredRedirectUri }) {
+  if (process.platform !== "linux" || !process.env.WSL_INTEROP
+      || registeredRedirectUri !== "http://localhost:8976/oauth/callback"
+      || url !== "http://localhost:8976/__cloudflare_auth_callback_ipv4_probe") {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "CALLBACK_PREFLIGHT_UNAVAILABLE",
+      "the exact Windows-to-WSL callback preflight is unavailable"
+    );
+  }
+  const result = await run("/mnt/c/windows/System32/WindowsPowerShell/v1.0/powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-Command",
+    "(Invoke-WebRequest -UseBasicParsing http://localhost:8976/__cloudflare_auth_callback_ipv4_probe).StatusCode"
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  if (result.stdout.trim() !== "204") {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "CALLBACK_PREFLIGHT_FAILED",
+      "Windows loopback did not reach the IPv4 WSL OAuth callback listener"
+    );
+  }
+}
+
+function executeObserved(execute, command, args, options) {
+  return execute(command, args, options);
 }
 
 function extractAccounts(value, results = []) {
@@ -137,6 +195,133 @@ function verifyGrantedScopes(identity, requested) {
   }
 }
 
+export class LinuxCloudflareAuthenticationRefusal extends Error {
+  constructor(code, message, evidence = {}) {
+    super(message);
+    this.name = "LinuxCloudflareAuthenticationRefusal";
+    this.code = code;
+    this.evidence = Object.freeze({ ...evidence });
+  }
+
+  toJSON() {
+    return {
+      type: "LinuxCloudflareAuthenticationRefusal",
+      code: this.code,
+      message: this.message,
+      evidence: this.evidence,
+      credentialReturned: false,
+      verified: false
+    };
+  }
+}
+
+/**
+ * Bind and mechanically verify an existing named profile without creating,
+ * printing, or accepting an ambient credential.
+ */
+export async function inspectLinuxCloudflareAuthentication(request, options = {}) {
+  const input = validateAuthenticationRequest(request);
+  const target = await realpath(input.settlementDirectory);
+  await access(target, constants.R_OK | constants.X_OK);
+
+  const wrangler = options.wranglerPath ?? join(CELL_ROOT, "node_modules", ".bin", "wrangler");
+  const compatibilityDirectory = options.compatibilityDirectory ?? join(CELL_ROOT, "libexec");
+  const execute = options.execute ?? run;
+  const environment = safeEnvironment(options.environment ?? process.env, compatibilityDirectory);
+
+  try {
+    await executeObserved(execute, join(compatibilityDirectory, "secret-tool"), ["--version"], {
+      cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "SECRET_TOOL_UNAVAILABLE",
+      "libsecret-tools or its Wrangler-compatible probe is unavailable",
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+
+  const bindingsPath = options.directoryBindingsPath ?? join(
+    options.environment?.XDG_CONFIG_HOME ?? process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+    ".wrangler", "profiles", "directory-bindings.json"
+  );
+  let bindings;
+  try {
+    bindings = JSON.parse(await readFile(bindingsPath, "utf8"));
+  } catch (error) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "PROFILE_NOT_BOUND",
+      `no readable Wrangler directory binding exists for ${target}`,
+      { profile: input.profile, settlementDirectory: target, bindingsPath }
+    );
+  }
+  if (bindings[target] !== input.profile) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "PROFILE_NOT_BOUND",
+      `named Wrangler profile ${input.profile} exists but is not bound to ${target}`,
+      { profile: input.profile, settlementDirectory: target, boundProfile: bindings[target] ?? null }
+    );
+  }
+
+  let verification;
+  try {
+    verification = await executeObserved(execute, wrangler, ["whoami", "--json", "--account", input.expectedAccountId], {
+      cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    let identity;
+    try {
+      identity = JSON.parse(error?.stdout ?? "");
+    } catch {
+      // Preserve the Wrangler diagnostic below when the failure was not JSON.
+    }
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "AUTHORIZATION_UNAVAILABLE",
+      identity?.loggedIn === false
+        ? `named Wrangler profile ${input.profile} exists and is bound, but is not logged in`
+        : `named Wrangler profile ${input.profile} exists and is bound, but its Cloudflare authorization is unavailable`,
+      { profile: input.profile, cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+
+  let identity;
+  try {
+    identity = JSON.parse(verification.stdout);
+  } catch {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "IDENTITY_MALFORMED",
+      "Wrangler returned a non-JSON identity response",
+      { profile: input.profile }
+    );
+  }
+  if (identity?.loggedIn === false) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "AUTHORIZATION_UNAVAILABLE",
+      `named Wrangler profile ${input.profile} exists but is not logged in`,
+      { profile: input.profile }
+    );
+  }
+  const account = extractAccounts(identity).find((item) => item.id === input.expectedAccountId);
+  if (!account) {
+    throw new LinuxCloudflareAuthenticationRefusal(
+      "ACCOUNT_MISMATCH",
+      `authorized identity is not a member of expected Cloudflare account ${input.expectedAccountId}`,
+      { profile: input.profile, expectedAccountId: input.expectedAccountId }
+    );
+  }
+
+  return {
+    type: "LinuxCloudflareAuthenticationInspection",
+    profile: input.profile,
+    account,
+    settlementDirectory: target,
+    secretToolProbe: "compatible",
+    credentialCustody: "linux-secret-service",
+    credentialReturned: false,
+    verified: true
+  };
+}
+
 export async function authenticateLinuxColonyWithCloudflare(request, options = {}) {
   const input = validateAuthenticationRequest(request);
   const target = await realpath(input.settlementDirectory);
@@ -147,12 +332,13 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
   const execute = options.execute ?? run;
   const environment = safeEnvironment(options.environment ?? process.env, compatibilityDirectory);
   const verificationDirectory = await mkdtemp(join(tmpdir(), "cloudflare-profile-verification-"));
+  const progress = typeof options.onProgress === "function" ? options.onProgress : () => {};
 
   const verifyProfile = async () => {
-    await execute(wrangler, [
+    await executeObserved(execute, wrangler, [
       "auth", "activate", input.profile, verificationDirectory
     ], { cwd: verificationDirectory, env: environment, stdio: ["ignore", "pipe", "pipe"] });
-    const verification = await execute(wrangler, [
+    const verification = await executeObserved(execute, wrangler, [
       "whoami", "--json", "--account", input.expectedAccountId
     ], { cwd: verificationDirectory, env: environment, stdio: ["ignore", "pipe", "pipe"] });
     let identity;
@@ -170,35 +356,82 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
   };
 
   let account;
+  let authority = null;
   try {
+    progress({ type: "LinuxCloudflareAuthenticationProgress", phase: "profile-probe", message: `Checking named Cloudflare profile ${input.profile} until it returns, is cancelled, or reports a transport failure.` });
     try {
       account = await verifyProfile();
-    } catch {
-      await execute(wrangler, [
-        "auth", "create", input.profile,
-        "--scopes", ...input.scopes,
-        "--callback-host", input.callbackHost,
-        "--callback-port", String(input.callbackPort),
-        input.browser ? "--browser" : "--no-browser"
-      ], { cwd: target, env: environment, stdio: "inherit" });
-      account = await verifyProfile();
+      progress({ type: "LinuxCloudflareAuthenticationProgress", phase: "profile-reused", message: `Named Cloudflare profile ${input.profile} passed exact account and scope verification.` });
+    } catch (probeError) {
+      progress({
+        type: "LinuxCloudflareAuthenticationProgress",
+        phase: "reauthorization-required",
+        message: `Named Cloudflare profile ${input.profile} is absent or unusable; starting visible interactive reauthorization now.`,
+        reason: probeError?.code ?? "PROFILE_UNUSABLE"
+      });
+      const authorize = options.authorize ?? authorizeCloudflareWithPkce;
+      const custody = options.authorityCustody ?? createAuthorityCustodyActuator({
+        substrate: options.authoritySubstrate ?? createWranglerKeyringAuthoritySubstrate({
+          configDirectory: options.wranglerConfigDirectory,
+          secretToolPath: join(compatibilityDirectory, "secret-tool")
+        })
+      });
+      const authorization = await authorize(input, {
+        openBrowser: options.openBrowser ?? openWslBrowser,
+        preflightCallback: options.preflightCallback ?? preflightWslBrowserCallback,
+        fetchImpl: options.fetchImpl,
+        endpoints: options.oauthEndpoints,
+        tokenAttempts: options.tokenAttempts,
+        storeCredential: options.storeCredential ?? ((credential) => custody.store({
+          provider: "cloudflare",
+          subject: credential.profile,
+          attributes: {
+            accountId: input.expectedAccountId,
+            scopes: input.scopes
+          },
+          secret: { ...credential }
+        }))
+      });
+      authority = authorization?.authority ?? null;
+      progress({ type: "LinuxCloudflareAuthenticationProgress", phase: "profile-verification", message: `Interactive authorization returned; verifying exact account and scopes for ${input.profile}.` });
+      try {
+        account = await verifyProfile();
+      } catch (error) {
+        throw new LinuxCloudflareAuthenticationRefusal(
+          "PROFILE_VERIFICATION_FAILED",
+          `newly authorized profile failed exact verification: ${error instanceof Error ? error.message : String(error)}`,
+          { profile: input.profile }
+        );
+      }
     }
 
-    await execute(wrangler, [
+    progress({ type: "LinuxCloudflareAuthenticationProgress", phase: "profile-activation", message: `Binding verified profile ${input.profile} to the requested settlement.` });
+    await executeObserved(execute, wrangler, [
       "auth", "activate", input.profile, target
     ], { cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"] });
   } finally {
+    try {
+      await executeObserved(execute, wrangler, ["auth", "deactivate", verificationDirectory], {
+        cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch {
+      // The disposable directory is still removed; Wrangler may already have
+      // removed the binding as part of a failed activation.
+    }
     await rm(verificationDirectory, { recursive: true, force: true });
   }
 
-  return {
+  const body = Object.freeze({
     type: "LinuxCloudflareAuthenticationReceipt",
     profile: input.profile,
     account: { id: account.id },
     scopes: input.scopes,
     settlementDirectory: target,
     credentialCustody: "linux-secret-service",
+    authority,
     credentialReturned: false,
     verified: true
-  };
+  });
+  const receipt = Object.freeze({ ...body, id: semanticId(body) });
+  return Object.freeze({ ...receipt, ...projectAuthenticationReceipt(receipt) });
 }

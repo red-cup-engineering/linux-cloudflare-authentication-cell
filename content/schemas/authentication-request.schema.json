@@ -15,7 +15,7 @@
       "items": { "type": "string" }
     },
     "settlementDirectory": { "type": "string", "minLength": 1 },
-    "browser": { "type": "boolean" },
+    "browser": { "const": true },
     "callbackHost": { "enum": ["localhost", "127.0.0.1", "::1"] },
     "callbackPort": { "type": "integer", "minimum": 1024, "maximum": 65535 }
   }

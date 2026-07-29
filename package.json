@@ -18,7 +18,8 @@
     "authenticate-linux-colony-with-cloudflare": "./bin/authenticate-linux-colony-with-cloudflare.mjs"
   },
   "exports": {
-    ".": "./src/authenticate-linux-colony-with-cloudflare.mjs"
+    ".": "./src/authenticate-linux-colony-with-cloudflare.mjs",
+    "./libexec/secret-tool": "./libexec/secret-tool"
   },
   "types": "./types/index.d.mts",
   "files": [
@@ -38,6 +39,9 @@
   },
   "dependencies": {
     "@lenticule-science/rmn-semantic-conformance-die": "6.0.0",
+    "@red-cup-engineering/activitypub-services-section": "workspace:*",
+    "@red-cup-engineering/authority-custody-actuator": "workspace:*",
+    "@red-cup-engineering/typed-resource-catalog": "workspace:*",
     "wrangler": "4.114.0"
   },
   "engines": {
@@ -62,6 +66,12 @@
         "protocols": [
           "HTTPS"
         ]
+      },
+      "inspect-linux-cloudflare-authentication": {
+        "action": "local:inspect-linux-cloudflare-authentication",
+        "accepts": "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory",
+        "returns": "a non-secret verified inspection or typed authorization refusal",
+        "protocols": ["POSIX", "DBus Secret Service", "Cloudflare API"]
       }
     }
   },
@@ -71,7 +81,8 @@
     "kind": "capability-cell",
     "actor": "urn:ame:linux-cloudflare-authentication-cell",
     "operations": [
-      "authenticate-linux-colony-with-cloudflare"
+      "authenticate-linux-colony-with-cloudflare",
+      "inspect-linux-cloudflare-authentication"
     ],
     "capabilities": [
       {
