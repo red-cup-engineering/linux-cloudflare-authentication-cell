@@ -1,5 +1,5 @@
 {
-  "name": "@red-cup-engineering/linux-cloudflare-authentication-cell",
+  "name": "@red-cup-engineering/linux-cloudflare-authentication-service",
   "version": "0.1.1",
   "private": false,
   "type": "module",
@@ -38,68 +38,13 @@
     "check": "node --check bin/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm test && npm pack --dry-run"
   },
   "dependencies": {
-    "@lenticule-science/rmn-semantic-conformance-die": "6.0.0",
-    "@red-cup-engineering/activitypub-services-section": "workspace:*",
-    "@red-cup-engineering/authority-custody-actuator": "workspace:*",
-    "@red-cup-engineering/typed-resource-catalog": "workspace:*",
+    "@lenticule-science/rmn-semantic-conformance-die": "6.0.1",
+    "@red-cup-engineering/activitypub-services-section": "1.0.2",
+    "@red-cup-engineering/authority-custody-actuator": "1.0.0",
+    "@red-cup-engineering/typed-resource-catalog": "0.1.1",
     "wrangler": "4.114.0"
   },
   "engines": {
     "node": ">=22"
-  },
-  "x-agentic-metro-enterprise": {
-    "node-id": "linux-cloudflare-authentication-cell",
-    "actor": "urn:ame:linux-cloudflare-authentication-cell",
-    "organizational-kind": "capability-cell",
-    "owners": [
-      "red-cup-engineering"
-    ],
-    "capability": "authenticate-linux-colony-with-cloudflare",
-    "action-origin": "https://linux-cloudflare-authentication.actions.561.group",
-    "chain": "eip155:5615610",
-    "operation-catalog": {
-      "authenticate-linux-colony-with-cloudflare": {
-        "contract": "ni:///sha-256;piqxpAqXLAxwlek0kAFz5wC_tLhDz5HPKvRYZUwwPm0",
-        "action": "https://linux-cloudflare-authentication.actions.561.group/invoke",
-        "accepts": "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory",
-        "returns": "a non-secret verified account and profile binding receipt",
-        "protocols": [
-          "HTTPS"
-        ]
-      },
-      "inspect-linux-cloudflare-authentication": {
-        "action": "local:inspect-linux-cloudflare-authentication",
-        "accepts": "one named profile, expected Cloudflare account, explicit OAuth scope set, and Linux settlement directory",
-        "returns": "a non-secret verified inspection or typed authorization refusal",
-        "protocols": ["POSIX", "DBus Secret Service", "Cloudflare API"]
-      },
-      "reconcile-cloud-run-domain-mapping-dns": {
-        "action": "local:reconcile-cloud-run-domain-mapping-dns",
-        "accepts": "one verified named dns:write profile plus the exact gui.561.group Cloud Run CNAME declaration",
-        "returns": "a non-secret created, updated, or unchanged DNS reconciliation receipt",
-        "protocols": ["POSIX", "DBus Secret Service", "Cloudflare REST API"]
-      }
-    }
-  },
-  "x-semiotic-voxel": {
-    "profile": "org.harmonious-union.semiotic-voxel.v1",
-    "owner": "red-cup-engineering",
-    "kind": "capability-cell",
-    "actor": "urn:ame:linux-cloudflare-authentication-cell",
-    "operations": [
-      "authenticate-linux-colony-with-cloudflare",
-      "inspect-linux-cloudflare-authentication",
-      "reconcile-cloud-run-domain-mapping-dns"
-    ],
-    "capabilities": [
-      {
-        "capability": "linux-cloudflare-authentication-cell",
-        "faces": [
-          "authenticate-linux-colony-with-cloudflare",
-          "reconcile-cloud-run-domain-mapping-dns"
-        ]
-      }
-    ],
-    "package": "@red-cup-engineering/linux-cloudflare-authentication-cell"
   }
 }
