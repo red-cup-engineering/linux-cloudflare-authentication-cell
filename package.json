@@ -38,7 +38,7 @@
     "check": "node --check scripts/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm test && npm pack --dry-run"
   },
   "dependencies": {
-    "@red-cup-engineering/rmn-semantic-conformance-die": "6.0.1",
+    "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
     "@red-cup-engineering/activitypub-services-section": "1.0.2",
     "@red-cup-engineering/authority-custody-actuator": "1.0.0",
     "@red-cup-engineering/typed-resource-catalog": "0.1.2",

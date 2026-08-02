@@ -1,4 +1,4 @@
-import { semanticBytes } from "@red-cup-engineering/rmn-semantic-conformance-die";
+import { semanticBytes } from "@red-cup-engineering/relation-model-notation-runtime";
 import {
   ACTIVITYSTREAMS_PUBLIC,
   projectRmnActivity
