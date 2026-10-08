@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +11,14 @@ import {
 } from "../src/authenticate-linux-colony-with-cloudflare.mjs";
 
 const accountId = "0123456789abcdef0123456789abcdef";
+
+async function testDirectory(t, existing = true) {
+  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await mkdir(join(directory, ".wrangler", "config"), { recursive: true });
+  if (existing) await writeFile(join(directory, ".wrangler", "config", "bare-cedar-fog.enc"), "synthetic profile fixture");
+  return directory;
+}
 
 test("refuses implicit and unknown authority", () => {
   assert.throws(() => validateAuthenticationRequest({ profile: "union", expectedAccountId: accountId, scopes: [], settlementDirectory: "/" }), /non-empty/);
@@ -45,15 +53,14 @@ test("admits the exact private MUD deployment authority expressible by Wrangler 
   ]);
 });
 
-test("authorizes, verifies, then activates without ambient credentials", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("authorizes, verifies, then activates without ambient credentials", async (t) => {
+  const directory = await testDirectory(t, false);
   const expectedDirectory = await realpath(directory);
   const calls = [];
   const authorizations = [];
   const execute = async (command, args, options) => {
     calls.push({ command, args, options });
-    if (calls.length === 1) throw new Error("profile absent");
-    if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: accountId, name: "Union" }], tokenPermissions: ["offline_access", "workers_scripts:write", "account:read"] }), stderr: "" };
+    if (args.includes("whoami")) return { stdout: JSON.stringify({ loggedIn: true, accounts: [{ id: accountId, name: "Union" }], tokenPermissions: ["offline_access", "workers_scripts:write", "account:read"] }), stderr: "" };
     return { stdout: "", stderr: "" };
   };
   const receipt = await authenticateLinuxColonyWithCloudflare({
@@ -63,6 +70,7 @@ test("authorizes, verifies, then activates without ambient credentials", async (
     settlementDirectory: directory,
     browser: true
   }, {
+    wranglerConfigDirectory: join(directory, ".wrangler"),
     authorize: async (input) => {
       authorizations.push(input);
       return {
@@ -79,21 +87,22 @@ test("authorizes, verifies, then activates without ambient credentials", async (
     wranglerPath: "/cell/wrangler",
     compatibilityDirectory: "/cell/libexec",
     environment: {
+      HOME: directory,
       PATH: "/usr/bin",
       CLOUDFLARE_API_TOKEN: "must-not-cross",
       CLOUDFLARE_API_KEY: "must-not-cross"
     }
   });
 
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
   assert.equal(authorizations.length, 1);
   assert.deepEqual(authorizations[0].scopes, ["account:read", "workers_scripts:write"]);
-  assert.equal(calls[1].args[0], "auth");
-  assert.equal(calls[1].args[1], "activate");
-  assert.deepEqual(calls[2].args, ["whoami", "--json", "--account", accountId]);
-  assert.deepEqual(calls[3].args, ["auth", "activate", "bare-cedar-fog", expectedDirectory]);
-  assert.equal(calls[4].args[0], "auth");
-  assert.equal(calls[4].args[1], "deactivate");
+  assert.equal(calls[2].args[0], "auth");
+  assert.equal(calls[2].args[1], "activate");
+  assert.deepEqual(calls[3].args, ["whoami", "--json", "--account", accountId]);
+  assert.deepEqual(calls[4].args, ["auth", "activate", "bare-cedar-fog", expectedDirectory]);
+  assert.equal(calls[5].args[0], "auth");
+  assert.equal(calls[5].args[1], "deactivate");
   assert.equal(calls[1].options.env.CLOUDFLARE_AUTH_USE_KEYRING, "true");
   assert.equal(calls[1].options.env.CLOUDFLARE_API_TOKEN, undefined);
   assert.equal(calls[1].options.env.CLOUDFLARE_API_KEY, undefined);
@@ -107,46 +116,30 @@ test("authorizes, verifies, then activates without ambient credentials", async (
   assert.equal(JSON.stringify(receipt).includes("must-not-cross"), false);
 });
 
-test("an unavailable profile probe transitions through visible interactive authorization", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
-  const calls = [];
+test("an unavailable existing profile reports refusal without interactive authorization", async (t) => {
+  const directory = await testDirectory(t);
   const progress = [];
   let authorized = false;
-  let whoamiCalls = 0;
-  const receipt = await authenticateLinuxColonyWithCloudflare({
+  await assert.rejects(authenticateLinuxColonyWithCloudflare({
     profile: "bare-cedar-fog",
     expectedAccountId: accountId,
     scopes: ["account:read"],
-    settlementDirectory: directory,
-    browser: true
+    settlementDirectory: directory
   }, {
+    wranglerConfigDirectory: join(directory, ".wrangler"), environment: { HOME: directory },
     authorize: async () => { authorized = true; },
     onProgress: (event) => progress.push(event),
-    execute: async (_command, args, options) => {
-      calls.push({ args, options });
-      if (args.includes("whoami")) {
-        whoamiCalls += 1;
-        if (whoamiCalls === 1) throw new Error("profile unavailable");
-        return {
-          stdout: JSON.stringify({
-            accounts: [{ id: accountId }],
-            tokenPermissions: ["account:read", "offline_access"]
-          }),
-          stderr: ""
-        };
-      }
+    execute: async (_command, args) => {
+      if (args[0] === "whoami") throw Object.assign(new Error("not logged in"), { stdout: '{"loggedIn":false}', status: 1 });
       return { stdout: "", stderr: "" };
     }
-  });
-
-  assert.equal(authorized, true);
-  assert.ok(progress.some(({ phase, reason }) => phase === "reauthorization-required" && reason === "PROFILE_UNUSABLE"));
-  assert.ok(progress.some(({ phase }) => phase === "profile-verification"));
-  assert.equal(receipt.verified, true);
+  }), (error) => error instanceof LinuxCloudflareAuthenticationRefusal && error.code === "AUTHORIZATION_UNAVAILABLE");
+  assert.equal(authorized, false);
+  assert.equal(progress.some(({ phase }) => phase === "reauthorization-required"), false);
 });
 
-test("does not activate an unexpected account", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("does not activate an unexpected account", async (t) => {
+  const directory = await testDirectory(t);
   let calls = 0;
   await assert.rejects(authenticateLinuxColonyWithCloudflare({
     profile: "bare-cedar-fog",
@@ -154,18 +147,19 @@ test("does not activate an unexpected account", async () => {
     scopes: ["account:read"],
     settlementDirectory: directory
   }, {
-    authorize: async () => {},
+    wranglerConfigDirectory: join(directory, ".wrangler"), environment: { HOME: directory },
+    authorize: async () => { assert.fail("existing profile must not be replaced"); },
     execute: async (_command, args) => {
       calls += 1;
-      if (args.includes("whoami")) return { stdout: JSON.stringify({ accounts: [{ id: "f".repeat(32) }], tokenPermissions: ["account:read", "offline_access"] }), stderr: "" };
+      if (args.includes("whoami")) return { stdout: JSON.stringify({ loggedIn: true, accounts: [{ id: "f".repeat(32) }], tokenPermissions: ["account:read", "offline_access"] }), stderr: "" };
       return { stdout: "", stderr: "" };
     }
   }), /not a member/);
-  assert.equal(calls, 5);
+  assert.equal(calls, 3);
 });
 
-test("does not reuse a profile carrying broader authority", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("does not reuse a profile carrying broader authority", async (t) => {
+  const directory = await testDirectory(t);
   let calls = 0;
   await assert.rejects(authenticateLinuxColonyWithCloudflare({
     profile: "bare-cedar-fog",
@@ -174,11 +168,13 @@ test("does not reuse a profile carrying broader authority", async () => {
     settlementDirectory: directory,
     browser: true
   }, {
-    authorize: async () => {},
+    wranglerConfigDirectory: join(directory, ".wrangler"), environment: { HOME: directory },
+    authorize: async () => { assert.fail("existing profile must not be replaced"); },
     execute: async (_command, args) => {
       calls += 1;
       if (args.includes("whoami")) {
         return { stdout: JSON.stringify({
+          loggedIn: true,
           accounts: [{ id: accountId }],
           tokenPermissions: ["account:read", "offline_access", "workers:write"]
         }), stderr: "" };
@@ -186,11 +182,11 @@ test("does not reuse a profile carrying broader authority", async () => {
       return { stdout: "", stderr: "" };
     }
   }), /granted OAuth permissions differ/);
-  assert.equal(calls, 5);
+  assert.equal(calls, 3);
 });
 
-test("inspection distinguishes an unavailable named profile from a missing secret-tool", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("inspection distinguishes an unavailable named profile from a missing secret-tool", async (t) => {
+  const directory = await testDirectory(t);
   const bindingsPath = join(directory, "bindings.json");
   await writeFile(bindingsPath, JSON.stringify({ [directory]: "bare-cedar-fog" }));
   const calls = [];
@@ -224,8 +220,8 @@ test("inspection distinguishes an unavailable named profile from a missing secre
   ]);
 });
 
-test("inspection reports an existing profile that is not bound without mutating Wrangler state", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("inspection reports an existing profile that is not bound without mutating Wrangler state", async (t) => {
+  const directory = await testDirectory(t);
   await assert.rejects(inspectLinuxCloudflareAuthentication({
     profile: "bare-cedar-fog",
     expectedAccountId: accountId,
@@ -237,13 +233,13 @@ test("inspection reports an existing profile that is not bound without mutating 
   }), (error) => error instanceof LinuxCloudflareAuthenticationRefusal && error.code === "PROFILE_NOT_BOUND");
 });
 
-test("authentication removes its disposable profile binding", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "cloudflare-auth-cell-"));
+test("authentication removes its disposable profile binding", async (t) => {
+  const directory = await testDirectory(t);
   const calls = [];
   const execute = async (_command, args) => {
     calls.push(args);
     if (args.includes("whoami")) return {
-      stdout: JSON.stringify({ accounts: [{ id: accountId }], tokenPermissions: ["account:read", "offline_access"] }),
+      stdout: JSON.stringify({ loggedIn: true, accounts: [{ id: accountId }], tokenPermissions: ["account:read", "offline_access"] }),
       stderr: ""
     };
     return { stdout: "", stderr: "" };
@@ -253,6 +249,7 @@ test("authentication removes its disposable profile binding", async () => {
     expectedAccountId: accountId,
     scopes: ["account:read"],
     settlementDirectory: directory
-  }, { execute, wranglerPath: "/cell/wrangler" });
+  }, { wranglerConfigDirectory: join(directory, ".wrangler"), environment: { HOME: directory }, execute, wranglerPath: "/cell/wrangler" });
   assert.ok(calls.some((args) => args[0] === "auth" && args[1] === "deactivate"));
 });
+
