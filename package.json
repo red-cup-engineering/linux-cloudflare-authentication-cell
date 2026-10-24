@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
-    "@red-cup-engineering/activitypub-engineering-services-section": "1.0.2",
+    "@red-cup-engineering/activitypub-services-section": "1.0.2",
     "@red-cup-engineering/authority-custody-actuator": "1.0.0",
     "@red-cup-engineering/typed-resource-catalog": "0.1.2",
     "wrangler": "4.114.0"
