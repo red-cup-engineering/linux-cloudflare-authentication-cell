@@ -41,3 +41,5 @@ unavailable. Inspection reads Wrangler's non-secret directory binding and invoke
 Secret Service operations but exits 2 for the non-standard `--version` probe
 used by Wrangler. The wrapper answers only that probe and delegates every
 credential operation unchanged to `/usr/bin/secret-tool`.
+
+[Published source revisions and downloads](data/releases/README.md)
