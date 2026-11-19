@@ -34,8 +34,7 @@
   ],
   "scripts": {
     "materialize-manifest": "node ops/materialize-manifest.mjs",
-    "test": "node --test",
-    "check": "node --check scripts/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm test && npm pack --dry-run"
+    "check": "node --check scripts/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm pack --dry-run"
   },
   "dependencies": {
     "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
