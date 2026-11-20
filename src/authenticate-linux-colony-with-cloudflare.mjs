@@ -10,7 +10,7 @@ import {
   authorizeCloudflareWithPkce
 } from "./cloudflare-oauth-pkce.mjs";
 import { createWranglerKeyringAuthoritySubstrate } from "./wrangler-keyring-authority-substrate.mjs";
-import { projectAuthenticationReceipt } from "./project-authentication-receipt.mjs";
+import { projectAuthenticationRecord } from "./project-authentication-receipt.mjs";
 
 export const CLOUDFLARE_OAUTH_SCOPES = new Set([
   "account:read",
@@ -139,7 +139,7 @@ function run(command, args, options) {
 
 function openWslBrowser(url) {
   if (process.platform !== "linux" || !process.env.WSL_INTEROP) {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "BROWSER_OPEN_UNAVAILABLE",
       "automatic authorization requires WSL browser interop on this settlement"
     );
@@ -154,7 +154,7 @@ async function preflightWslBrowserCallback({ url, registeredRedirectUri }) {
   if (process.platform !== "linux" || !process.env.WSL_INTEROP
       || registeredRedirectUri !== "http://localhost:8976/oauth/callback"
       || url !== "http://localhost:8976/__cloudflare_auth_callback_ipv4_probe") {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "CALLBACK_PREFLIGHT_UNAVAILABLE",
       "the exact Windows-to-WSL callback preflight is unavailable"
     );
@@ -164,7 +164,7 @@ async function preflightWslBrowserCallback({ url, registeredRedirectUri }) {
     "(Invoke-WebRequest -UseBasicParsing http://localhost:8976/__cloudflare_auth_callback_ipv4_probe).StatusCode"
   ], { stdio: ["ignore", "pipe", "pipe"] });
   if (result.stdout.trim() !== "204") {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "CALLBACK_PREFLIGHT_FAILED",
       "Windows loopback did not reach the IPv4 WSL OAuth callback listener"
     );
@@ -189,16 +189,16 @@ function extractAccounts(value, results = []) {
 
 function verifyGrantedScopes(identity, requested) {
   if (!Array.isArray(identity?.tokenPermissions) || identity.tokenPermissions.some((scope) => typeof scope !== "string")) {
-    throw new LinuxCloudflareAuthenticationRefusal("IDENTITY_MALFORMED", "Wrangler identity response does not disclose granted OAuth permissions");
+    throw new LinuxCloudflareAuthenticationRejection("IDENTITY_MALFORMED", "Wrangler identity response does not disclose granted OAuth permissions");
   }
   const granted = [...new Set(identity.tokenPermissions)].sort();
   const expected = [...new Set([...requested, "offline_access"])].sort();
   if (JSON.stringify(granted) !== JSON.stringify(expected)) {
-    throw new LinuxCloudflareAuthenticationRefusal("SCOPE_MISMATCH", "granted OAuth permissions differ from the exact request");
+    throw new LinuxCloudflareAuthenticationRejection("SCOPE_MISMATCH", "granted OAuth permissions differ from the exact request");
   }
 }
 
-export class LinuxCloudflareAuthenticationRefusal extends Error {
+export class LinuxCloudflareAuthenticationRejection extends Error {
   constructor(code, message, evidence = {}) {
     super(message);
     this.name = "LinuxCloudflareAuthenticationRefusal";
@@ -219,41 +219,41 @@ export class LinuxCloudflareAuthenticationRefusal extends Error {
 }
 
 const TRANSPORT_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "ENOTFOUND", "ENETUNREACH", "EHOSTUNREACH", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"]);
-const CUSTODY_CODES = new Set(["EACCES", "EPERM", "EIO", "EISDIR", "ENOTDIR", "ELOOP", "ERR_OSSL_BAD_DECRYPT"]);
+const STORAGE_CODES = new Set(["EACCES", "EPERM", "EIO", "EISDIR", "ENOTDIR", "ELOOP", "ERR_OSSL_BAD_DECRYPT"]);
 
 function profileProbeFailure(error, input, stage) {
   const code = error?.code;
-  const refusalCode = TRANSPORT_CODES.has(code) ? "PROFILE_TRANSPORT_FAILED"
-    : CUSTODY_CODES.has(code) ? "PROFILE_CUSTODY_UNREADABLE"
+  const rejectionCode = TRANSPORT_CODES.has(code) ? "PROFILE_TRANSPORT_FAILED"
+    : STORAGE_CODES.has(code) ? "PROFILE_CUSTODY_UNREADABLE"
       : code === "ENOENT" ? "WRANGLER_UNAVAILABLE"
         : code === "ABORT_ERR" || error?.signal ? "PROFILE_PROBE_CANCELLED"
           : "PROFILE_PROBE_FAILED";
   // Subprocess messages/stdout/stderr may contain sensitive material. Only
   // project known non-secret status codes, never their arbitrary diagnostics.
   const evidence = { profile: input.profile, stage };
-  if (TRANSPORT_CODES.has(code) || CUSTODY_CODES.has(code) || code === "ENOENT" || code === "ABORT_ERR") evidence.causeCode = code;
+  if (TRANSPORT_CODES.has(code) || STORAGE_CODES.has(code) || code === "ENOENT" || code === "ABORT_ERR") evidence.causeCode = code;
   if (Number.isInteger(error?.status)) evidence.exitStatus = error.status;
-  return new LinuxCloudflareAuthenticationRefusal(refusalCode, "named profile verification failed; existing authorization must not be replaced", evidence);
+  return new LinuxCloudflareAuthenticationRejection(rejectionCode, "named profile verification failed; existing authorization must not be replaced", evidence);
 }
 
 function authorizationUnavailable(input) {
   // Wrangler also emits loggedIn:false for a missing key or corrupt encrypted
   // file. It does not prove that the OAuth grant itself has expired/revoked.
-  return new LinuxCloudflareAuthenticationRefusal("AUTHORIZATION_UNAVAILABLE", "named profile has no usable authorization; resolve its grant or credential custody before replacing it", { profile: input.profile });
+  return new LinuxCloudflareAuthenticationRejection("AUTHORIZATION_UNAVAILABLE", "named profile has no usable authorization; resolve its grant or credential custody before replacing it", { profile: input.profile });
 }
 
 function verifyIdentity(stdout, input) {
   let identity;
   try { identity = JSON.parse(stdout); } catch {
-    throw new LinuxCloudflareAuthenticationRefusal("IDENTITY_MALFORMED", "Wrangler returned a non-JSON identity response", { profile: input.profile });
+    throw new LinuxCloudflareAuthenticationRejection("IDENTITY_MALFORMED", "Wrangler returned a non-JSON identity response", { profile: input.profile });
   }
   if (identity?.loggedIn === false) throw authorizationUnavailable(input);
   if (identity?.loggedIn !== true || !Array.isArray(identity.accounts)) {
-    throw new LinuxCloudflareAuthenticationRefusal("IDENTITY_MALFORMED", "Wrangler returned an incomplete identity response", { profile: input.profile });
+    throw new LinuxCloudflareAuthenticationRejection("IDENTITY_MALFORMED", "Wrangler returned an incomplete identity response", { profile: input.profile });
   }
   verifyGrantedScopes(identity, input.scopes);
   const account = extractAccounts(identity.accounts).find((item) => item.id === input.expectedAccountId);
-  if (!account) throw new LinuxCloudflareAuthenticationRefusal("ACCOUNT_MISMATCH", `authorized identity is not a member of expected Cloudflare account ${input.expectedAccountId}`, { profile: input.profile, expectedAccountId: input.expectedAccountId });
+  if (!account) throw new LinuxCloudflareAuthenticationRejection("ACCOUNT_MISMATCH", `authorized identity is not a member of expected Cloudflare account ${input.expectedAccountId}`, { profile: input.profile, expectedAccountId: input.expectedAccountId });
   return account;
 }
 
@@ -262,7 +262,7 @@ async function probeIdentity(execute, wrangler, input, options) {
   try {
     verification = await executeObserved(execute, wrangler, ["whoami", "--json", "--account", input.expectedAccountId], options);
   } catch (error) {
-    if (TRANSPORT_CODES.has(error?.code) || CUSTODY_CODES.has(error?.code) || error?.code === "ENOENT" || error?.code === "ABORT_ERR" || error?.signal) {
+    if (TRANSPORT_CODES.has(error?.code) || STORAGE_CODES.has(error?.code) || error?.code === "ENOENT" || error?.code === "ABORT_ERR" || error?.signal) {
       throw profileProbeFailure(error, input, "identity");
     }
     let identity;
@@ -276,7 +276,7 @@ async function probeIdentity(execute, wrangler, input, options) {
 async function resolveWranglerConfigDirectory(environment, options, input) {
   const selected = (directory) => {
     if (options.wranglerConfigDirectory && resolve(options.wranglerConfigDirectory) !== resolve(directory)) {
-      throw new LinuxCloudflareAuthenticationRefusal("PROFILE_CONFIG_MISMATCH", "credential custody directory differs from Wrangler's resolved profile directory", { profile: input.profile });
+      throw new LinuxCloudflareAuthenticationRejection("PROFILE_CONFIG_MISMATCH", "credential custody directory differs from Wrangler's resolved profile directory", { profile: input.profile });
     }
     return directory;
   };
@@ -287,15 +287,15 @@ async function resolveWranglerConfigDirectory(environment, options, input) {
   try {
     if ((await stat(legacy)).isDirectory()) return selected(legacy);
   } catch (error) {
-    if (error instanceof LinuxCloudflareAuthenticationRefusal) throw error;
+    if (error instanceof LinuxCloudflareAuthenticationRejection) throw error;
     if (error?.code !== "ENOENT") throw profileProbeFailure(error, input, "profile-metadata");
     // A dangling legacy symlink is ambiguous custody, not an absent profile.
     try {
       await lstat(legacy);
-      throw new LinuxCloudflareAuthenticationRefusal("PROFILE_CUSTODY_UNREADABLE", "legacy Wrangler configuration is not accessible", { profile: input.profile });
+      throw new LinuxCloudflareAuthenticationRejection("PROFILE_CUSTODY_UNREADABLE", "legacy Wrangler configuration is not accessible", { profile: input.profile });
     } catch (missing) {
       if (missing?.code !== "ENOENT") {
-        if (missing instanceof LinuxCloudflareAuthenticationRefusal) throw missing;
+        if (missing instanceof LinuxCloudflareAuthenticationRejection) throw missing;
         throw profileProbeFailure(missing, input, "profile-metadata");
       }
     }
@@ -329,7 +329,7 @@ function cloudRunDnsInput(input) {
 async function cloudflareRequest(fetchImpl, token, path, init = {}) {
   const response = await fetchImpl(`https://api.cloudflare.com/client/v4${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
   const body = await response.json();
-  if (!response.ok || body.success !== true) throw new LinuxCloudflareAuthenticationRefusal("DNS_API_REFUSED", `Cloudflare DNS request refused: ${JSON.stringify(body.errors ?? [])}`);
+  if (!response.ok || body.success !== true) throw new LinuxCloudflareAuthenticationRejection("DNS_API_REFUSED", `Cloudflare DNS request refused: ${JSON.stringify(body.errors ?? [])}`);
   return body.result;
 }
 
@@ -345,14 +345,14 @@ export async function reconcileCloudRunDomainMappingDns(input, options = {}) {
       secretToolExecute: options.secretToolExecute,
     }).readProfile(authentication.profile);
   const token = credential?.oauthToken;
-  if (typeof token !== "string" || token.length === 0) throw new LinuxCloudflareAuthenticationRefusal("PROFILE_TOKEN_UNAVAILABLE", "named profile has no OAuth token");
+  if (typeof token !== "string" || token.length === 0) throw new LinuxCloudflareAuthenticationRejection("PROFILE_TOKEN_UNAVAILABLE", "named profile has no OAuth token");
   const fetchImpl = options.fetch ?? fetch;
   const zones = await cloudflareRequest(fetchImpl, token, `/zones?name=${encodeURIComponent(mapping.zone)}`);
-  if (!Array.isArray(zones) || zones.length !== 1 || zones[0]?.name !== mapping.zone) throw new LinuxCloudflareAuthenticationRefusal("ZONE_AMBIGUOUS", "Cloudflare zone resolution is not exact");
+  if (!Array.isArray(zones) || zones.length !== 1 || zones[0]?.name !== mapping.zone) throw new LinuxCloudflareAuthenticationRejection("ZONE_AMBIGUOUS", "Cloudflare zone resolution is not exact");
   const zoneId = zones[0].id, listPath = `/zones/${zoneId}/dns_records?type=CNAME&name=${encodeURIComponent(mapping.name)}`;
   const records = await cloudflareRequest(fetchImpl, token, listPath);
   const matches = Array.isArray(records) ? records.filter((record) => record.type === mapping.type && record.name === mapping.name) : [];
-  if (matches.length > 1) throw new LinuxCloudflareAuthenticationRefusal("DNS_DUPLICATE", "duplicate gui.561.group CNAME records refuse ambiguous mutation");
+  if (matches.length > 1) throw new LinuxCloudflareAuthenticationRejection("DNS_DUPLICATE", "duplicate gui.561.group CNAME records refuse ambiguous mutation");
   const same = (record) => record.content === mapping.content && record.proxied === mapping.proxied && record.ttl === mapping.ttl;
   if (matches.length === 1 && same(matches[0])) return Object.freeze({ type: "CloudflareDnsReconciliationReceipt", disposition: "unchanged", zoneId, recordId: matches[0].id, mapping, inspection, credentialReturned: false });
   const method = matches.length === 1 ? "PUT" : "POST", path = matches.length === 1 ? `/zones/${zoneId}/dns_records/${matches[0].id}` : `/zones/${zoneId}/dns_records`;
@@ -379,7 +379,7 @@ export async function inspectLinuxCloudflareAuthentication(request, options = {}
       cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"]
     });
   } catch (error) {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "SECRET_TOOL_UNAVAILABLE",
       "libsecret-tools or its Wrangler-compatible probe is unavailable",
       { profile: input.profile }
@@ -394,14 +394,14 @@ export async function inspectLinuxCloudflareAuthentication(request, options = {}
   try {
     bindings = JSON.parse(await readFile(bindingsPath, "utf8"));
   } catch (error) {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "PROFILE_NOT_BOUND",
       `no readable Wrangler directory binding exists for ${target}`,
       { profile: input.profile, settlementDirectory: target, bindingsPath }
     );
   }
   if (bindings[target] !== input.profile) {
-    throw new LinuxCloudflareAuthenticationRefusal(
+    throw new LinuxCloudflareAuthenticationRejection(
       "PROFILE_NOT_BOUND",
       `named Wrangler profile ${input.profile} exists but is not bound to ${target}`,
       { profile: input.profile, settlementDirectory: target, boundProfile: bindings[target] ?? null }
@@ -456,12 +456,12 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
     const configDirectory = await resolveWranglerConfigDirectory(environment, options, input);
     try {
       if (!await namedProfileExists(configDirectory, input, options.profileMetadata)) {
-        throw new LinuxCloudflareAuthenticationRefusal("PROFILE_ABSENT", "named Wrangler profile is absent", { profile: input.profile });
+        throw new LinuxCloudflareAuthenticationRejection("PROFILE_ABSENT", "named Wrangler profile is absent", { profile: input.profile });
       }
       account = await verifyProfile();
       progress({ type: "LinuxCloudflareAuthenticationProgress", phase: "profile-reused", message: `Named Cloudflare profile ${input.profile} passed exact account and scope verification.` });
     } catch (probeError) {
-      if (!(probeError instanceof LinuxCloudflareAuthenticationRefusal) || probeError.code !== "PROFILE_ABSENT") throw probeError;
+      if (!(probeError instanceof LinuxCloudflareAuthenticationRejection) || probeError.code !== "PROFILE_ABSENT") throw probeError;
       // An absent profile is not permission to open a browser when the local
       // verification/custody tooling is unavailable.
       try {
@@ -470,10 +470,10 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
       try {
         await executeObserved(execute, join(compatibilityDirectory, "secret-tool"), ["--version"], { cwd: target, env: environment, stdio: ["ignore", "pipe", "pipe"] });
       } catch {
-        throw new LinuxCloudflareAuthenticationRefusal("SECRET_TOOL_UNAVAILABLE", "libsecret-tools or its Wrangler-compatible probe is unavailable", { profile: input.profile });
+        throw new LinuxCloudflareAuthenticationRejection("SECRET_TOOL_UNAVAILABLE", "libsecret-tools or its Wrangler-compatible probe is unavailable", { profile: input.profile });
       }
       if (await namedProfileExists(configDirectory, input, options.profileMetadata)) {
-        throw new LinuxCloudflareAuthenticationRefusal("PROFILE_CHANGED", "named profile appeared during verification; inspect it before authorizing", { profile: input.profile });
+        throw new LinuxCloudflareAuthenticationRejection("PROFILE_CHANGED", "named profile appeared during verification; inspect it before authorizing", { profile: input.profile });
       }
       progress({
         type: "LinuxCloudflareAuthenticationProgress",
@@ -482,7 +482,7 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
         reason: "PROFILE_ABSENT"
       });
       const authorize = options.authorize ?? authorizeCloudflareWithPkce;
-      const custody = options.authorityCustody ?? createAuthorityCustodyActuator({
+      const storage = options.authorityCustody ?? createAuthorityCustodyActuator({
         substrate: options.authoritySubstrate ?? createWranglerKeyringAuthoritySubstrate({
           configDirectory,
           secretToolPath: join(compatibilityDirectory, "secret-tool")
@@ -496,9 +496,9 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
         tokenAttempts: options.tokenAttempts,
         storeCredential: async (credential) => {
           if (await namedProfileExists(configDirectory, input, options.profileMetadata)) {
-            throw new LinuxCloudflareAuthenticationRefusal("PROFILE_CHANGED", "named profile appeared during authorization; refusing to replace it", { profile: input.profile });
+            throw new LinuxCloudflareAuthenticationRejection("PROFILE_CHANGED", "named profile appeared during authorization; refusing to replace it", { profile: input.profile });
           }
-          return await (options.storeCredential ?? ((value) => custody.store({
+          return await (options.storeCredential ?? ((value) => storage.store({
             provider: "cloudflare",
             subject: value.profile,
             attributes: { accountId: input.expectedAccountId, scopes: input.scopes },
@@ -511,10 +511,10 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
       try {
         account = await verifyProfile();
       } catch (error) {
-        throw new LinuxCloudflareAuthenticationRefusal(
+        throw new LinuxCloudflareAuthenticationRejection(
           "PROFILE_VERIFICATION_FAILED",
           "newly authorized profile failed exact verification",
-          { profile: input.profile, reason: error instanceof LinuxCloudflareAuthenticationRefusal ? error.code : "PROFILE_PROBE_FAILED" }
+          { profile: input.profile, reason: error instanceof LinuxCloudflareAuthenticationRejection ? error.code : "PROFILE_PROBE_FAILED" }
         );
       }
     }
@@ -551,6 +551,6 @@ export async function authenticateLinuxColonyWithCloudflare(request, options = {
     verified: true
   });
   const receipt = Object.freeze({ ...body, id: semanticId(body) });
-  return Object.freeze({ ...receipt, ...projectAuthenticationReceipt(receipt) });
+  return Object.freeze({ ...receipt, ...projectAuthenticationRecord(receipt) });
 }
 

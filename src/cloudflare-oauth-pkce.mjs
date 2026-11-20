@@ -11,7 +11,7 @@ export const CLOUDFLARE_OAUTH = Object.freeze({
 
 const TOKEN_ATTEMPTS = 2;
 
-export class CloudflareOAuthRefusal extends Error {
+export class CloudflareOAuthRejection extends Error {
   constructor(code, message, evidence = {}) {
     super(message);
     this.name = "CloudflareOAuthRefusal";
@@ -28,14 +28,14 @@ function exactScopes(value, requested) {
   const granted = [...new Set(String(value ?? "").split(/\s+/u).filter(Boolean))].sort();
   const expected = [...new Set([...requested, "offline_access"])].sort();
   if (JSON.stringify(granted) !== JSON.stringify(expected)) {
-    throw new CloudflareOAuthRefusal("OAUTH_SCOPE_MISMATCH", "Cloudflare granted a scope set different from the exact request", { expected, granted });
+    throw new CloudflareOAuthRejection("OAUTH_SCOPE_MISMATCH", "Cloudflare granted a scope set different from the exact request", { expected, granted });
   }
   return granted;
 }
 
 function jsonObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new CloudflareOAuthRefusal("OAUTH_RESPONSE_INVALID", "OAuth provider returned a non-object response");
+    throw new CloudflareOAuthRejection("OAUTH_RESPONSE_INVALID", "OAuth provider returned a non-object response");
   }
   return value;
 }
@@ -47,13 +47,13 @@ async function readJson(fetchImpl, url, init) {
     try {
       body = jsonObject(await response.json());
     } catch (error) {
-      if (error instanceof CloudflareOAuthRefusal) throw error;
-      throw new CloudflareOAuthRefusal("OAUTH_RESPONSE_INVALID", "OAuth provider returned unreadable JSON", { status: response.status });
+      if (error instanceof CloudflareOAuthRejection) throw error;
+      throw new CloudflareOAuthRejection("OAUTH_RESPONSE_INVALID", "OAuth provider returned unreadable JSON", { status: response.status });
     }
     return { status: response.status, ok: response.ok, body };
   } catch (error) {
-    if (error instanceof CloudflareOAuthRefusal) throw error;
-    throw new CloudflareOAuthRefusal("OAUTH_TRANSPORT_FAILED", "OAuth transport failed without returning a response");
+    if (error instanceof CloudflareOAuthRejection) throw error;
+    throw new CloudflareOAuthRejection("OAUTH_TRANSPORT_FAILED", "OAuth transport failed without returning a response");
   }
 }
 
@@ -76,12 +76,12 @@ async function exchangeCode(input, options) {
       if (!result.ok) {
         const retryable = result.status === 429 || result.status >= 500;
         if (retryable && attempt < options.attempts) continue;
-        throw new CloudflareOAuthRefusal("OAUTH_TOKEN_EXCHANGE_REFUSED", "Cloudflare refused the authorization-code exchange", { status: result.status, attempt });
+        throw new CloudflareOAuthRejection("OAUTH_TOKEN_EXCHANGE_REFUSED", "Cloudflare refused the authorization-code exchange", { status: result.status, attempt });
       }
       return { ...result.body, attempts: attempt };
     } catch (error) {
       lastError = error;
-      const retryable = error instanceof CloudflareOAuthRefusal && error.code === "OAUTH_TRANSPORT_FAILED";
+      const retryable = error instanceof CloudflareOAuthRejection && error.code === "OAUTH_TRANSPORT_FAILED";
       if (!retryable || attempt === options.attempts) throw error;
     }
   }
@@ -106,20 +106,20 @@ function awaitCallback({ host, port, path, expectedState }) {
       }
       if (url.searchParams.get("state") !== expectedState) {
         response.writeHead(400, { "content-type": "text/plain; charset=utf-8", connection: "close" }).end("Authorization state mismatch.");
-        finish(new CloudflareOAuthRefusal("OAUTH_STATE_MISMATCH", "OAuth callback state did not match the issued state"));
+        finish(new CloudflareOAuthRejection("OAUTH_STATE_MISMATCH", "OAuth callback state did not match the issued state"));
         return;
       }
       const providerError = url.searchParams.get("error");
       const code = url.searchParams.get("code");
       if (providerError || !code) {
         response.writeHead(400, { "content-type": "text/plain; charset=utf-8", connection: "close" }).end("Authorization was not granted.");
-        finish(new CloudflareOAuthRefusal("OAUTH_CALLBACK_REFUSED", "Cloudflare callback did not carry an authorization code", { providerError: providerError ?? null }));
+        finish(new CloudflareOAuthRejection("OAUTH_CALLBACK_REFUSED", "Cloudflare callback did not carry an authorization code", { providerError: providerError ?? null }));
         return;
       }
       response.writeHead(200, { "content-type": "text/plain; charset=utf-8", connection: "close" }).end("Authorization received. You may close this tab.");
       finish(null, code);
     });
-    server.once("error", (error) => reject(new CloudflareOAuthRefusal("OAUTH_CALLBACK_BIND_FAILED", "OAuth callback listener could not bind", { cause: error.code ?? "unknown" })));
+    server.once("error", (error) => reject(new CloudflareOAuthRejection("OAUTH_CALLBACK_BIND_FAILED", "OAuth callback listener could not bind", { cause: error.code ?? "unknown" })));
     server.listen(port, host);
   });
   return { callback, listening: new Promise((resolve, reject) => {
@@ -173,7 +173,7 @@ export async function authorizeCloudflareWithPkce(input, options = {}) {
     });
     if (typeof token.access_token !== "string" || token.access_token === ""
         || !Number.isFinite(token.expires_in) || token.expires_in <= 0) {
-      throw new CloudflareOAuthRefusal("OAUTH_TOKEN_RESPONSE_INVALID", "Cloudflare token response omitted required fields");
+      throw new CloudflareOAuthRejection("OAUTH_TOKEN_RESPONSE_INVALID", "Cloudflare token response omitted required fields");
     }
     const scopes = exactScopes(token.scope, input.scopes);
     const accounts = await readJson(fetchImpl, endpoints.accountsEndpoint, {
@@ -181,7 +181,7 @@ export async function authorizeCloudflareWithPkce(input, options = {}) {
     });
     const member = Array.isArray(accounts.body.result) && accounts.body.result.some((account) => account?.id === input.expectedAccountId);
     if (!accounts.ok || !member) {
-      throw new CloudflareOAuthRefusal("OAUTH_ACCOUNT_MISMATCH", "OAuth identity is not a member of the expected Cloudflare account", { expectedAccountId: input.expectedAccountId, status: accounts.status });
+      throw new CloudflareOAuthRejection("OAUTH_ACCOUNT_MISMATCH", "OAuth identity is not a member of the expected Cloudflare account", { expectedAccountId: input.expectedAccountId, status: accounts.status });
     }
     const authority = await options.storeCredential({
       profile: input.profile,
