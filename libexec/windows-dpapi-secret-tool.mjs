@@ -10,7 +10,7 @@ const PROFILE = "org.red-cup-engineering.windows-current-user-dpapi-secret-tool.
 const POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
 const POWERSHELL_DPAPI = "$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Security;$r=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:RED_CUP_DPAPI_REQUEST))|ConvertFrom-Json);$p=[Convert]::FromBase64String([string]$r.payload);$e=[Text.Encoding]::UTF8.GetBytes([string]$r.entropy);if([string]$r.mode -eq 'protect'){$o=[Security.Cryptography.ProtectedData]::Protect($p,$e,[Security.Cryptography.DataProtectionScope]::CurrentUser)}elseif([string]$r.mode -eq 'unprotect'){$o=[Security.Cryptography.ProtectedData]::Unprotect($p,$e,[Security.Cryptography.DataProtectionScope]::CurrentUser)}else{throw 'inadmissible DPAPI operation'};[Console]::Out.Write([Convert]::ToBase64String($o))";
 
-class DpapiSecretToolRejection extends Error {
+class DpapiSecretToolRefusal extends Error {
   constructor(code) { super(code); this.name = "DpapiSecretToolRefusal"; this.code = code; }
 }
 
@@ -22,10 +22,10 @@ function parseAttributes(args) {
     if (args[index].startsWith("--collection=")) continue;
     values.push(args[index]);
   }
-  if (values.length === 0 || values.length % 2 !== 0) throw new DpapiSecretToolRejection("SECRET_ATTRIBUTES_INVALID");
+  if (values.length === 0 || values.length % 2 !== 0) throw new DpapiSecretToolRefusal("SECRET_ATTRIBUTES_INVALID");
   const attributes = Object.fromEntries(Array.from({ length: values.length / 2 }, (_, index) => [values[index * 2], values[index * 2 + 1]]));
   if (attributes.service !== "wrangler" || typeof attributes.account !== "string" || attributes.account === "") {
-    throw new DpapiSecretToolRejection("SECRET_ATTRIBUTES_OUT_OF_SCOPE");
+    throw new DpapiSecretToolRefusal("SECRET_ATTRIBUTES_OUT_OF_SCOPE");
   }
   return Object.freeze({ service: attributes.service, account: attributes.account });
 }
@@ -57,13 +57,13 @@ async function runPowerShell(mode, payload, entropy, options = {}) {
     });
       let settled = false;
       const finish = (action) => { if (settled) return; settled = true; action(); };
-      child.on("error", () => finish(() => reject(new DpapiSecretToolRejection("DPAPI_PROCESS_UNAVAILABLE"))));
-      child.on("close", (status) => finish(() => status === 0 ? resolvePromise() : reject(new DpapiSecretToolRejection("DPAPI_OPERATION_REFUSED"))));
+      child.on("error", () => finish(() => reject(new DpapiSecretToolRefusal("DPAPI_PROCESS_UNAVAILABLE"))));
+      child.on("close", (status) => finish(() => status === 0 ? resolvePromise() : reject(new DpapiSecretToolRefusal("DPAPI_OPERATION_REFUSED"))));
     });
     await response.close();
     const stdout = (await readFile(responsePath, "utf8")).trim();
-    if (stdout.length > 2_000_000) throw new DpapiSecretToolRejection("DPAPI_RESPONSE_TOO_LARGE");
-    if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(stdout)) throw new DpapiSecretToolRejection("DPAPI_OPERATION_REFUSED");
+    if (stdout.length > 2_000_000) throw new DpapiSecretToolRefusal("DPAPI_RESPONSE_TOO_LARGE");
+    if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(stdout)) throw new DpapiSecretToolRefusal("DPAPI_OPERATION_REFUSED");
     return Buffer.from(stdout, "base64");
   } finally {
     await response.close().catch(() => {});
@@ -87,7 +87,7 @@ export function createWindowsCurrentUserDpapiSecretTool(options = {}) {
     async lookup(attributes) {
       let ciphertext;
       try { ciphertext = await readFile(encodedPath(root, attributes)); }
-      catch (error) { if (error?.code === "ENOENT") return null; throw new DpapiSecretToolRejection("DPAPI_CIPHERTEXT_UNREADABLE"); }
+      catch (error) { if (error?.code === "ENOENT") return null; throw new DpapiSecretToolRefusal("DPAPI_CIPHERTEXT_UNREADABLE"); }
       return unprotect(ciphertext, coordinate(attributes));
     },
     async clear(attributes) { await rm(encodedPath(root, attributes), { force: true }); },
@@ -103,7 +103,7 @@ async function readStdin() {
 async function main(args) {
   if (args.length === 1 && args[0] === "--version") { process.stdout.write("secret-tool (Windows CurrentUser DPAPI)\n"); return 0; }
   const [operation, ...attributeArgs] = args;
-  if (!["store", "lookup", "clear"].includes(operation)) throw new DpapiSecretToolRejection("SECRET_OPERATION_UNSUPPORTED");
+  if (!["store", "lookup", "clear"].includes(operation)) throw new DpapiSecretToolRefusal("SECRET_OPERATION_UNSUPPORTED");
   const attributes = parseAttributes(attributeArgs);
   const tool = createWindowsCurrentUserDpapiSecretTool();
   if (operation === "store") { await tool.store(attributes, await readStdin()); return 0; }

@@ -3,7 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { CloudflareOAuthRejection } from "./cloudflare-oauth-pkce.mjs";
+import { CloudflareOAuthRefusal } from "./cloudflare-oauth-pkce.mjs";
 
 function runSecretTool(secretToolPath, args, input) {
   return new Promise((resolve, reject) => {
@@ -60,7 +60,7 @@ export function createWranglerKeyringAuthoritySubstrate(options = {}) {
     const key = randomBytes(32);
     const envelope = JSON.stringify({ v: 1, key: key.toString("base64"), created: new Date().toISOString() });
     const stored = await execute(["store", "--label=Cloudflare credentials key", ...attributes(profile)], envelope);
-    if (stored.status !== 0) throw new CloudflareOAuthRejection("SECRET_SERVICE_WRITE_FAILED", "Secret Service refused the Wrangler encryption key");
+    if (stored.status !== 0) throw new CloudflareOAuthRefusal("SECRET_SERVICE_WRITE_FAILED", "Secret Service refused the Wrangler encryption key");
     return key;
   }
   async function readProfile(profile) {

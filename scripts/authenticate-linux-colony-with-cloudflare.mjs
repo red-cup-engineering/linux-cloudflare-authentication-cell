@@ -10,12 +10,12 @@ if (!path || process.argv.length !== 3) {
 } else {
   try {
     const request = JSON.parse(await readFile(path, "utf8"));
-    const record = await authenticateLinuxColonyWithCloudflare(request, {
+    const receipt = await authenticateLinuxColonyWithCloudflare(request, {
       onProgress(event) {
         process.stderr.write(`[${event.phase}] ${event.message}\n`);
       }
     });
-    process.stdout.write(`${JSON.stringify(record)}\n`);
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

@@ -8,7 +8,7 @@ import { receiptRmn } from "@red-cup-engineering/typed-resource-catalog/rmn";
 export const AUTHENTICATION_ACTIVITY_ORIGIN = "https://linux-cloudflare-authentication.actions.561.group/";
 export const AUTHENTICATION_ACTIVITY_IDENTIFIER = "linux-cloudflare-authentication";
 export const AUTHENTICATION_AGENT_CARD = `${AUTHENTICATION_ACTIVITY_ORIGIN}.well-known/agent-card.json`;
-const RECORD_FIELDS = new Set([
+const RECEIPT_FIELDS = new Set([
   "id", "type", "profile", "account", "scopes", "settlementDirectory",
   "credentialCustody", "authority", "credentialReturned", "verified"
 ]);
@@ -18,16 +18,16 @@ const RECORD_FIELDS = new Set([
  * ActivityPub faces. The Mark remains the semantic coordinate; canonical
  * CBOR is only the transport projection required by the public membrane.
  */
-export function projectAuthenticationRecord(record) {
-  if (record?.type !== "LinuxCloudflareAuthenticationReceipt"
-      || record.verified !== true || record.credentialReturned !== false) {
+export function projectAuthenticationReceipt(receipt) {
+  if (receipt?.type !== "LinuxCloudflareAuthenticationReceipt"
+      || receipt.verified !== true || receipt.credentialReturned !== false) {
     throw new TypeError("one settled non-secret Cloudflare authentication receipt is required");
   }
-  const foreignField = Object.keys(record).find((field) => !RECORD_FIELDS.has(field));
+  const foreignField = Object.keys(receipt).find((field) => !RECEIPT_FIELDS.has(field));
   if (foreignField !== undefined) {
     throw new TypeError(`Cloudflare authentication receipt contains an unprojectable field: ${foreignField}`);
   }
-  const rmn = receiptRmn(record);
+  const rmn = receiptRmn(receipt);
   const objectBytes = semanticBytes(rmn.term);
   const activity = projectRmnActivity({
     type: "Create",
