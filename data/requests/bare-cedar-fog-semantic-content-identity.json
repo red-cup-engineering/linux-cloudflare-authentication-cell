@@ -1,0 +1,15 @@
+{
+  "profile": "bare-cedar-fog-semantic-content-identity",
+  "expectedAccountId": "337e54ee6dc7d488933f473204a6d89e",
+  "scopes": [
+    "account:read",
+    "user:read",
+    "workers_routes:write",
+    "workers_scripts:write",
+    "zone:read"
+  ],
+  "settlementDirectory": "/home/emsenn/info/lib/emsenn/services/561-group/services/red-cup-engineering/services/semantic-content-identity-cell",
+  "browser": true,
+  "callbackHost": "localhost",
+  "callbackPort": 8976
+}

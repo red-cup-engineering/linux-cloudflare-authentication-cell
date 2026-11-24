@@ -1,0 +1,54 @@
+{
+  "name": "@red-cup-engineering/linux-cloudflare-authentication-service",
+  "version": "0.1.1",
+  "private": false,
+  "type": "module",
+  "description": "Initiates one explicitly scoped Cloudflare OAuth authorization from a Linux settlement, stores it through Wrangler named-profile keyring custody, verifies the account binding, and returns a non-secret receipt.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/red-cup-engineering/linux-cloudflare-authentication-cell.git"
+  },
+  "homepage": "https://linux-cloudflare-authentication.actions.561.group/",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bin": {
+    "authenticate-linux-colony-with-cloudflare": "./scripts/authenticate-linux-colony-with-cloudflare.mjs"
+  },
+  "exports": {
+    ".": "./src/authenticate-linux-colony-with-cloudflare.mjs",
+    "./libexec/secret-tool": "./libexec/secret-tool"
+  },
+  "types": "./types/index.d.mts",
+  "files": [
+    "scripts",
+    "content",
+    "data/manifest",
+    "libexec",
+    "src",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "materialize-manifest": "node ops/materialize-manifest.mjs",
+    "check": "node --check scripts/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm pack --dry-run"
+  },
+  "dependencies": {
+    "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
+    "@red-cup-engineering/activitypub-services-section": "1.0.2",
+    "@red-cup-engineering/authority-custody-actuator": "1.0.0",
+    "@red-cup-engineering/typed-resource-catalog": "0.1.2",
+    "wrangler": "4.114.0",
+    "@red-cup-engineering/computer-file-engineering-services-section": "^0.8.16"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/561-group/.github/blob/main/TIPS.md"
+  }
+}
