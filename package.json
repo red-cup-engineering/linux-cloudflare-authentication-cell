@@ -37,12 +37,13 @@
     "check": "node --check scripts/authenticate-linux-colony-with-cloudflare.mjs && node --check src/authenticate-linux-colony-with-cloudflare.mjs && npm pack --dry-run"
   },
   "dependencies": {
-    "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
     "@red-cup-engineering/activitypub-services-section": "1.0.2",
     "@red-cup-engineering/authority-custody-actuator": "1.0.0",
+    "@red-cup-engineering/computer-file-engineering-services-section": "^0.8.16",
+    "@red-cup-engineering/relation-model-notation-runtime": "7.0.0",
+    "@red-cup-engineering/semiotic-content-address-system": "0.1.9",
     "@red-cup-engineering/typed-resource-catalog": "0.1.2",
-    "wrangler": "4.114.0",
-    "@red-cup-engineering/computer-file-engineering-services-section": "^0.8.16"
+    "wrangler": "4.114.0"
   },
   "engines": {
     "node": ">=22"

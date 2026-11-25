@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@red-cup-engineering/semiotic-content-address-system";
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -35,7 +35,7 @@ function coordinate(attributes) {
 }
 
 function encodedPath(root, attributes) {
-  return join(root, `${createHash("sha256").update(coordinate(attributes)).digest("hex")}.dpapi`);
+  return join(root, `${sha256Hex(coordinate(attributes))}.dpapi`);
 }
 
 async function runPowerShell(mode, payload, entropy, options = {}) {

@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
+import { sha256Base64Url } from "@red-cup-engineering/semiotic-content-address-system";
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
 export const CLOUDFLARE_OAUTH = Object.freeze({
@@ -133,7 +134,7 @@ export async function authorizeCloudflareWithPkce(input, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const state = opaque(32);
   const verifier = opaque(72);
-  const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
+  const challenge = sha256Base64Url(verifier);
   const redirect = new URL(endpoints.redirectUri);
   const callback = awaitCallback({
     host: input.callbackHost,
